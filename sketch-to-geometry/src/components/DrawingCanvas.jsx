@@ -2,10 +2,11 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { recognizeShape } from '../utils/shapeRecognition';
 import './DrawingCanvas.css';
 
-const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
+const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDelete, onStrokeUpdate }) => {
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
   const currentStrokeRef = useRef([]);
+  const selectedStrokeRef = useRef(null);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -29,14 +30,23 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw all strokes
-    ctx.strokeStyle = '#2c3e50';
-    ctx.lineWidth = 2;
+    // Draw all strokes - semi-transparent
+    ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
+    ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
-    strokes.forEach((stroke) => {
+    strokes.forEach((stroke, index) => {
       if (stroke.points.length < 2) return;
+
+      // Highlight selected stroke
+      if (selectedStrokeRef.current === index) {
+        ctx.strokeStyle = 'rgba(44, 62, 80, 0.6)';
+        ctx.lineWidth = 5;
+      } else {
+        ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
+        ctx.lineWidth = 4;
+      }
 
       ctx.beginPath();
       ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
@@ -48,14 +58,14 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
       ctx.stroke();
     });
 
-    // Draw recognized shapes as overlay
+    // Draw recognized shapes - black, solid
     drawShapesOverlay(ctx);
   }, [strokes, recognizedShapes]);
 
   const drawShapesOverlay = (ctx) => {
-    ctx.strokeStyle = '#e74c3c';
+    ctx.strokeStyle = '#000000';
     ctx.lineWidth = 2;
-    ctx.fillStyle = 'rgba(231, 76, 60, 0.05)';
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
 
     recognizedShapes.forEach((shape) => {
       if (!shape.type) return;
@@ -114,6 +124,7 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
   const handlePointerDown = (e) => {
     isDrawingRef.current = true;
     currentStrokeRef.current = [];
+    selectedStrokeRef.current = null;
 
     const rect = canvasRef.current.getBoundingClientRect();
     const point = {
@@ -151,8 +162,8 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
 
     const prevPoint = currentStrokeRef.current[currentStrokeRef.current.length - 2];
 
-    ctx.strokeStyle = '#2c3e50';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
+    ctx.lineWidth = 4;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
@@ -197,3 +208,4 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes }) => {
 };
 
 export default DrawingCanvas;
+

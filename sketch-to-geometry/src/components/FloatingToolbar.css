@@ -1,0 +1,62 @@
+.floating-toolbar {
+  position: fixed;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: rgba(237, 232, 252, 0.95);
+  backdrop-filter: blur(10px);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(103, 58, 183, 0.15);
+  border: 1px solid rgba(103, 58, 183, 0.1);
+  z-index: 1000;
+  user-select: none;
+  touch-action: none;
+}
+
+.toolbar-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  cursor: pointer;
+  border-radius: 8px;
+  background: white;
+  border: 1px solid rgba(103, 58, 183, 0.1);
+  transition: all 0.2s ease;
+  color: #6735b7;
+  font-weight: 600;
+}
+
+.toolbar-icon:hover:not([disabled]) {
+  background: rgba(103, 58, 183, 0.1);
+  border-color: rgba(103, 58, 183, 0.3);
+  transform: translateY(-2px);
+  box-shadow: 0 2px 8px rgba(103, 58, 183, 0.1);
+}
+
+.toolbar-icon:active:not([disabled]) {
+  transform: translateY(0);
+}
+
+.toolbar-icon[disabled] {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.toolbar-icon.danger {
+  color: #d32f2f;
+}
+
+.toolbar-icon.danger:hover {
+  background: rgba(211, 47, 47, 0.1);
+  border-color: rgba(211, 47, 47, 0.3);
+}
+
+.toolbar-divider {
+  width: 100%;
+  height: 1px;
+  background: rgba(103, 58, 183, 0.1);
+}

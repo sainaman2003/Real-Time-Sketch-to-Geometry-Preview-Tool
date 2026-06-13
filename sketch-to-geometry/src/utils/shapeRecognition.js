@@ -77,7 +77,10 @@ const recognizeLine = (points) => {
   if (points.length < 2) return null;
 
   const maxDeviation = calculateLineDeviation(points);
-  const lineThreshold = 15; // pixels
+  const totalLength = distance(points[0], points[points.length - 1]);
+  
+  // Line threshold based on total length (more lenient for longer lines)
+  const lineThreshold = Math.max(15, totalLength * 0.08);
 
   if (maxDeviation < lineThreshold) {
     const start = points[0];
@@ -182,17 +185,45 @@ const recognizeRectangle = (points) => {
 
   const corners = findCorners(points, 0.5);
 
+  // Must have exactly 4 corners for rectangle
   if (corners.length === 4) {
     const bbox = getBoundingBox(points);
     const aspectRatio = bbox.width / bbox.height;
 
-    // Rectangle should not be too close to square (unless intentionally drawn)
-    if (aspectRatio > 0.5 && aspectRatio < 2) {
-      return {
-        type: 'rectangle',
-        corners: corners.map((c) => c.point),
-        bbox,
-      };
+    // More strict: aspect ratio should indicate rectangle, not square
+    if (aspectRatio > 0.6 && aspectRatio < 1.667) {
+      // Check corner angles - they should be roughly 90 degrees
+      const cornerPoints = corners.map((c) => c.point);
+      const angles = [];
+      
+      for (let i = 0; i < cornerPoints.length; i++) {
+        const prev = cornerPoints[(i - 1 + cornerPoints.length) % cornerPoints.length];
+        const curr = cornerPoints[i];
+        const next = cornerPoints[(i + 1) % cornerPoints.length];
+
+        const v1 = { x: prev.x - curr.x, y: prev.y - curr.y };
+        const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+
+        const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+        const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+        if (len1 > 0 && len2 > 0) {
+          const dot = v1.x * v2.x + v1.y * v2.y;
+          const angle = Math.acos(dot / (len1 * len2));
+          angles.push(angle);
+        }
+      }
+
+      // Check if all angles are close to 90 degrees (π/2)
+      const validAngles = angles.filter((a) => Math.abs(a - Math.PI / 2) < 0.4);
+      
+      if (validAngles.length >= 3) {
+        return {
+          type: 'rectangle',
+          corners: cornerPoints,
+          bbox,
+        };
+      }
     }
   }
 
@@ -224,9 +255,19 @@ const recognizeArc = (points) => {
   if (!bbox) return null;
 
   const aspectRatio = bbox.width / (bbox.height + 0.1);
+  const totalLength = distance(points[0], points[points.length - 1]);
+  const pathLength = points.reduce((sum, point, i) => {
+    if (i === 0) return sum;
+    return sum + distance(points[i - 1], point);
+  }, 0);
 
-  // Arc should have aspect ratio between 0.3 and 3
-  if (aspectRatio > 0.3 && aspectRatio < 3) {
+  // Arc should have significant path length relative to straight line distance
+  const arcFactor = pathLength / (totalLength + 0.1);
+
+  // Arc: path is significantly longer than straight distance
+  // Aspect ratio should suggest curvature
+  // Arc factor should be > 1.2
+  if (arcFactor > 1.2 && arcFactor < 3) {
     const curvature = calculateLineDeviation(points);
     const arcThreshold = 20; // pixels
 
@@ -235,7 +276,8 @@ const recognizeArc = (points) => {
         type: 'arc',
         bbox,
         curvature,
-        points: points.slice(0, points.length), // Keep all points for rendering
+        arcFactor,
+        points: points.slice(0, points.length),
       };
     }
   }
@@ -247,23 +289,24 @@ const recognizeArc = (points) => {
 export const recognizeShape = (points) => {
   if (points.length < 2) return null;
 
-  // Try line first (open shape)
+  // Try line first (open shape) - most common
   if (!isClosed(points, 30)) {
     const line = recognizeLine(points);
     if (line) return line;
 
+    // Only try arc if not a line
     const arc = recognizeArc(points);
     if (arc) return arc;
 
     return null;
   }
 
-  // Closed shapes
-  const circle = recognizeCircle(points);
-  if (circle) return circle;
-
+  // Closed shapes - try in order of specificity
   const rectangle = recognizeRectangle(points);
   if (rectangle) return rectangle;
+
+  const circle = recognizeCircle(points);
+  if (circle) return circle;
 
   const polygon = recognizePolygon(points);
   if (polygon) return polygon;
