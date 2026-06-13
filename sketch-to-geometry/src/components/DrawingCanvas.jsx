@@ -2,7 +2,16 @@ import React, { useRef, useEffect, useCallback } from 'react';
 import { recognizeShape } from '../utils/shapeRecognition';
 import './DrawingCanvas.css';
 
-const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDelete, onStrokeUpdate }) => {
+const DrawingCanvas = ({
+  onStrokeComplete,
+  strokes,
+  recognizedShapes,
+  onStrokeDelete,
+  onStrokeUpdate,
+  currentTool,
+  currentColor,
+  currentWidth,
+}) => {
   const canvasRef = useRef(null);
   const isDrawingRef = useRef(false);
   const currentStrokeRef = useRef([]);
@@ -20,7 +29,7 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
 
   useEffect(() => {
     redrawCanvas();
-  }, [strokes, recognizedShapes]);
+  }, [strokes, recognizedShapes, currentColor, currentWidth]);
 
   const redrawCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -30,23 +39,21 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw all strokes - semi-transparent
-    ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
+    // Draw all strokes
     strokes.forEach((stroke, index) => {
       if (stroke.points.length < 2) return;
 
       // Highlight selected stroke
       if (selectedStrokeRef.current === index) {
         ctx.strokeStyle = 'rgba(44, 62, 80, 0.6)';
-        ctx.lineWidth = 5;
+        ctx.lineWidth = stroke.width + 2;
       } else {
-        ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
-        ctx.lineWidth = 4;
+        ctx.strokeStyle = `rgba(${hexToRgb(stroke.color).join(',')}, 0.3)`;
+        ctx.lineWidth = stroke.width;
       }
+
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
       ctx.beginPath();
       ctx.moveTo(stroke.points[0].x, stroke.points[0].y);
@@ -61,6 +68,11 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
     // Draw recognized shapes - black, solid
     drawShapesOverlay(ctx);
   }, [strokes, recognizedShapes]);
+
+  const hexToRgb = (hex) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? [parseInt(result[1], 16), parseInt(result[2], 16), parseInt(result[3], 16)] : [0, 0, 0];
+  };
 
   const drawShapesOverlay = (ctx) => {
     ctx.strokeStyle = '#000000';
@@ -162,15 +174,19 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
 
     const prevPoint = currentStrokeRef.current[currentStrokeRef.current.length - 2];
 
-    ctx.strokeStyle = 'rgba(44, 62, 80, 0.3)';
-    ctx.lineWidth = 4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
+    if (currentTool === 'eraser') {
+      ctx.clearRect(point.x - currentWidth / 2, point.y - currentWidth / 2, currentWidth, currentWidth);
+    } else {
+      ctx.strokeStyle = `rgba(${hexToRgb(currentColor).join(',')}, 0.3)`;
+      ctx.lineWidth = currentWidth;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
 
-    ctx.beginPath();
-    ctx.moveTo(prevPoint.x, prevPoint.y);
-    ctx.lineTo(point.x, point.y);
-    ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(prevPoint.x, prevPoint.y);
+      ctx.lineTo(point.x, point.y);
+      ctx.stroke();
+    }
   };
 
   const handlePointerUp = () => {
@@ -178,11 +194,19 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
 
     isDrawingRef.current = false;
 
+    if (currentTool === 'eraser') {
+      // Eraser mode - no stroke to save
+      currentStrokeRef.current = [];
+      return;
+    }
+
     if (currentStrokeRef.current.length > 1) {
       const strokeData = {
         id: Date.now(),
         timestamp: Date.now(),
         points: currentStrokeRef.current,
+        color: currentColor,
+        width: currentWidth,
       };
 
       // Recognize shape from the stroke
@@ -208,4 +232,5 @@ const DrawingCanvas = ({ onStrokeComplete, strokes, recognizedShapes, onStrokeDe
 };
 
 export default DrawingCanvas;
+
 

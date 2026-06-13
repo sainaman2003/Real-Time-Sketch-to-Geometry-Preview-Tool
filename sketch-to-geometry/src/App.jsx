@@ -7,6 +7,9 @@ function App() {
   const [strokes, setStrokes] = useState([]);
   const [recognizedShapes, setRecognizedShapes] = useState([]);
   const [undoStack, setUndoStack] = useState([]);
+  const [currentTool, setCurrentTool] = useState('pen');
+  const [currentColor, setCurrentColor] = useState('#000000');
+  const [currentWidth, setCurrentWidth] = useState(4);
 
   const handleStrokeComplete = (strokeData, recognizedShape) => {
     // Add new stroke
@@ -73,30 +76,44 @@ function App() {
 
   return (
     <div className="app">
-      <div className="app-header-small">
+      {/* Header overlay */}
+      <div className="canvas-header">
         Sketch to Geometry
       </div>
 
+      {/* Canvas */}
       <DrawingCanvas
         onStrokeComplete={handleStrokeComplete}
         strokes={strokes}
         recognizedShapes={recognizedShapes}
+        currentTool={currentTool}
+        currentColor={currentColor}
+        currentWidth={currentWidth}
       />
 
+      {/* Credit overlay */}
+      <div className="canvas-credit">
+        by Sai Naman
+      </div>
+
+      {/* Floating Toolbar */}
       <FloatingToolbar
         onUndo={handleUndo}
         onRedo={handleRedo}
         onClear={handleClear}
         canUndo={strokes.length > 0}
         canRedo={undoStack.length > 0}
+        onToolChange={setCurrentTool}
+        onColorChange={setCurrentColor}
+        onWidthChange={setCurrentWidth}
+        currentTool={currentTool}
+        currentColor={currentColor}
+        currentWidth={currentWidth}
       />
-
-      <div className="app-credit">
-        by Sai Naman
-      </div>
     </div>
   );
 }
 
 export default App;
+
 
