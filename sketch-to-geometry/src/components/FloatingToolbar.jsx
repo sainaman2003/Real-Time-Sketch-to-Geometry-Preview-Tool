@@ -22,11 +22,11 @@ const FloatingToolbar = ({
   currentColor,
   currentWidth,
 }) => {
-  const [position, setPosition] = useState({ x: 16, y: window.innerHeight / 2 - 100 });
+  const [position, setPosition] = useState({ x: 16, y: 60 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
-  const [showColorPicker, setShowColorPicker] = useState(false);
-  const [showWidthSlider, setShowWidthSlider] = useState(false);
+  const [showPenSettings, setShowPenSettings] = useState(false);
+  const [showEraserSettings, setShowEraserSettings] = useState(false);
   const toolbarRef = useRef(null);
 
   const handleMouseDown = (e) => {
@@ -48,7 +48,7 @@ const FloatingToolbar = ({
     const newY = e.clientY - dragOffset.y;
 
     setPosition({
-      x: Math.max(0, Math.min(newX, window.innerWidth - 80)),
+      x: Math.max(0, Math.min(newX, window.innerWidth - 60)),
       y: Math.max(0, Math.min(newY, window.innerHeight - 100)),
     });
   };
@@ -69,10 +69,39 @@ const FloatingToolbar = ({
     }
   }, [isDragging, dragOffset]);
 
-  const handleToolSelect = (tool) => {
-    onToolChange(tool);
-    setShowColorPicker(false);
-    setShowWidthSlider(false);
+  const handlePenClick = (e) => {
+    e.stopPropagation();
+    if (currentTool === 'pen' && showPenSettings) {
+      setShowPenSettings(false);
+    } else {
+      onToolChange('pen');
+      setShowPenSettings(true);
+      setShowEraserSettings(false);
+    }
+  };
+
+  const handleEraserClick = (e) => {
+    e.stopPropagation();
+    if (currentTool === 'eraser' && showEraserSettings) {
+      setShowEraserSettings(false);
+    } else {
+      onToolChange('eraser');
+      setShowEraserSettings(true);
+      setShowPenSettings(false);
+    }
+  };
+
+  const handleColorSelect = (color) => {
+    onColorChange(color);
+    setShowPenSettings(false);
+  };
+
+  const handleWidthChange = (width) => {
+    onWidthChange(width);
+  };
+
+  const handleEraserWidthChange = (width) => {
+    onWidthChange(width);
   };
 
   return (
@@ -86,80 +115,77 @@ const FloatingToolbar = ({
       }}
       onMouseDown={handleMouseDown}
     >
-      {/* Main toolbar header */}
-      <div className="toolbar-header">
-        <div className="toolbar-label">Tools</div>
-      </div>
-
       {/* Tool buttons */}
       <div className="toolbar-section">
         <div
           className={`toolbar-icon ${currentTool === 'pen' ? 'active' : ''}`}
-          title="Pen"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToolSelect('pen');
-            setShowWidthSlider(!showWidthSlider);
-          }}
+          title="Pen Tool"
+          onClick={handlePenClick}
         >
-          ✏️
+          🖊️
         </div>
         <div
           className={`toolbar-icon ${currentTool === 'eraser' ? 'active' : ''}`}
-          title="Eraser"
-          onClick={(e) => {
-            e.stopPropagation();
-            handleToolSelect('eraser');
-            setShowWidthSlider(false);
-          }}
+          title="Eraser Tool"
+          onClick={handleEraserClick}
         >
-          ⌫
+          🧹
         </div>
       </div>
 
-      {/* Width slider */}
-      {showWidthSlider && currentTool === 'pen' && (
+      {/* Pen settings - shows only when pen is selected */}
+      {showPenSettings && currentTool === 'pen' && (
         <div className="toolbar-settings" onClick={(e) => e.stopPropagation()}>
-          <div className="settings-label">Width: {currentWidth}px</div>
-          <input
-            type="range"
-            min="1"
-            max="20"
-            value={currentWidth}
-            onChange={(e) => onWidthChange(parseInt(e.target.value))}
-            className="width-slider"
-          />
+          <div className="settings-section">
+            <div className="settings-label">Width</div>
+            <input
+              type="range"
+              min="1"
+              max="20"
+              value={currentWidth}
+              onChange={(e) => handleWidthChange(parseInt(e.target.value))}
+              className="width-slider"
+            />
+            <div className="settings-value">{currentWidth}px</div>
+          </div>
+
+          <div className="settings-divider"></div>
+
+          <div className="settings-section">
+            <div className="settings-label">Color</div>
+            <div className="color-grid">
+              {COLORS.map((color) => (
+                <div
+                  key={color.value}
+                  className={`color-swatch ${currentColor === color.value ? 'selected' : ''}`}
+                  style={{ backgroundColor: color.value }}
+                  title={color.name}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleColorSelect(color.value);
+                  }}
+                />
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Color picker */}
-      <div className="toolbar-section">
-        <div
-          className="color-preview"
-          title="Colors"
-          onClick={(e) => {
-            e.stopPropagation();
-            setShowColorPicker(!showColorPicker);
-          }}
-          style={{ backgroundColor: currentColor }}
-        />
-      </div>
-
-      {showColorPicker && (
-        <div className="color-picker" onClick={(e) => e.stopPropagation()}>
-          {COLORS.map((color) => (
-            <div
-              key={color.value}
-              className={`color-option ${currentColor === color.value ? 'selected' : ''}`}
-              style={{ backgroundColor: color.value }}
-              title={color.name}
-              onClick={(e) => {
-                e.stopPropagation();
-                onColorChange(color.value);
-                setShowColorPicker(false);
-              }}
+      {/* Eraser settings - shows only when eraser is selected */}
+      {showEraserSettings && currentTool === 'eraser' && (
+        <div className="toolbar-settings" onClick={(e) => e.stopPropagation()}>
+          <div className="settings-section">
+            <div className="settings-label">Size</div>
+            <input
+              type="range"
+              min="1"
+              max="30"
+              value={currentWidth}
+              onChange={(e) => handleEraserWidthChange(parseInt(e.target.value))}
+              className="width-slider"
             />
-          ))}
+            <div className="settings-value">{currentWidth}px</div>
+          </div>
         </div>
       )}
 
@@ -206,4 +232,5 @@ const FloatingToolbar = ({
 };
 
 export default FloatingToolbar;
+
 
