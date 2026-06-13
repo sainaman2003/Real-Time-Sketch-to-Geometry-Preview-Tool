@@ -44,6 +44,19 @@ const isClosed = (points, threshold = 20) => {
   return distance(points[0], points[points.length - 1]) < threshold;
 };
 
+// Check if shape is nearly closed (for incomplete rectangles/shapes)
+const isNearlyClosed = (points, threshold = 50) => {
+  if (points.length < 4) return false;
+  const closureDistance = distance(points[0], points[points.length - 1]);
+  const bbox = getBoundingBox(points);
+  const diagonalDistance = distance(
+    { x: bbox.minX, y: bbox.minY },
+    { x: bbox.maxX, y: bbox.maxY }
+  );
+  // Consider it nearly closed if closure distance is less than 25% of diagonal
+  return closureDistance < Math.max(threshold, diagonalDistance * 0.25);
+};
+
 // Get bounding box
 const getBoundingBox = (points) => {
   if (points.length === 0) return null;
@@ -97,7 +110,7 @@ const recognizeLine = (points) => {
 
 // Recognize circle
 const recognizeCircle = (points) => {
-  if (!isClosed(points)) return null;
+  if (!isClosed(points) && !isNearlyClosed(points)) return null;
 
   const bbox = getBoundingBox(points);
   if (!bbox) return null;
@@ -136,10 +149,13 @@ const findCorners = (points, threshold = 0.6) => {
   const corners = [];
   if (points.length < 3) return corners;
 
-  for (let i = 1; i < points.length - 1; i++) {
-    const prev = points[i - 1];
-    const curr = points[i];
-    const next = points[i + 1];
+  // For nearly-closed shapes, also check the connection between end and start
+  const extendedPoints = points;
+  
+  for (let i = 1; i < extendedPoints.length - 1; i++) {
+    const prev = extendedPoints[i - 1];
+    const curr = extendedPoints[i];
+    const next = extendedPoints[i + 1];
 
     const v1 = { x: curr.x - prev.x, y: curr.y - prev.y };
     const v2 = { x: next.x - curr.x, y: next.y - curr.y };
@@ -159,19 +175,69 @@ const findCorners = (points, threshold = 0.6) => {
     }
   }
 
-  // Filter corners that are too close together
+  // Also check corners at stroke boundaries for nearly-closed shapes
+  if (isNearlyClosed(points)) {
+    // Check if start/end point is a corner
+    if (extendedPoints.length >= 3) {
+      const start = extendedPoints[0];
+      const second = extendedPoints[1];
+      const end = extendedPoints[extendedPoints.length - 1];
+      const secondLast = extendedPoints[extendedPoints.length - 2];
+
+      // Check start point
+      const v1start = { x: second.x - start.x, y: second.y - start.y };
+      const v2start = { x: end.x - start.x, y: end.y - start.y };
+      const len1start = Math.sqrt(v1start.x * v1start.x + v1start.y * v1start.y);
+      const len2start = Math.sqrt(v2start.x * v2start.x + v2start.y * v2start.y);
+      
+      if (len1start > 0 && len2start > 0) {
+        const dotStart = v1start.x * v2start.x + v1start.y * v2start.y;
+        const crossStart = v1start.x * v2start.y - v1start.y * v2start.x;
+        const angleStart = Math.atan2(crossStart, dotStart);
+        const curvatureStart = Math.abs(angleStart);
+        
+        if (curvatureStart > threshold) {
+          // Check if not too close to other corners
+          let farFromOthers = true;
+          for (const c of corners) {
+            if (distance(start, c.point) < 30) {
+              farFromOthers = false;
+              break;
+            }
+          }
+          if (farFromOthers) {
+            corners.push({ index: 0, point: start, curvature: curvatureStart });
+          }
+        }
+      }
+    }
+  }
+
+  // Filter corners that are too close together (keep the sharper one)
   const filteredCorners = [];
-  const minDistance = 30;
+  const minDistance = 25; // Reduced from 30 for better detection
 
   for (const corner of corners) {
     let isFarEnough = true;
-    for (const existing of filteredCorners) {
+    let indexToRemove = -1;
+    
+    for (let j = 0; j < filteredCorners.length; j++) {
+      const existing = filteredCorners[j];
       if (distance(corner.point, existing.point) < minDistance) {
         isFarEnough = false;
+        // Keep the corner with higher curvature
+        if (corner.curvature > existing.curvature) {
+          indexToRemove = j;
+          isFarEnough = true; // Mark for replacement
+        }
         break;
       }
     }
-    if (isFarEnough) {
+    
+    if (indexToRemove >= 0) {
+      filteredCorners.splice(indexToRemove, 1);
+      filteredCorners.push(corner);
+    } else if (isFarEnough) {
       filteredCorners.push(corner);
     }
   }
@@ -181,21 +247,22 @@ const findCorners = (points, threshold = 0.6) => {
 
 // Recognize rectangle
 const recognizeRectangle = (points) => {
-  if (!isClosed(points)) return null;
+  // Accept both closed and nearly-closed shapes
+  if (!isClosed(points) && !isNearlyClosed(points)) return null;
 
-  const corners = findCorners(points, 0.5);
+  const corners = findCorners(points, 0.45); // Slightly lower threshold for better detection
 
-  // Must have exactly 4 corners for rectangle
-  if (corners.length === 4) {
+  // Must have 3 or 4 corners for rectangle (3 corners suggests missing closure corner)
+  if (corners.length >= 3 && corners.length <= 4) {
     const bbox = getBoundingBox(points);
-    const aspectRatio = bbox.width / bbox.height;
+    const aspectRatio = bbox.width / (bbox.height + 0.1);
 
-    // More strict: aspect ratio should indicate rectangle, not square
-    if (aspectRatio > 0.6 && aspectRatio < 1.667) {
-      // Check corner angles - they should be roughly 90 degrees
+    // Accept rectangles and squares (0.4 to 2.5 ratio to be more lenient)
+    if (aspectRatio > 0.4 && aspectRatio < 2.5) {
       const cornerPoints = corners.map((c) => c.point);
       const angles = [];
       
+      // Calculate angles between corners
       for (let i = 0; i < cornerPoints.length; i++) {
         const prev = cornerPoints[(i - 1 + cornerPoints.length) % cornerPoints.length];
         const curr = cornerPoints[i];
@@ -209,15 +276,16 @@ const recognizeRectangle = (points) => {
 
         if (len1 > 0 && len2 > 0) {
           const dot = v1.x * v2.x + v1.y * v2.y;
-          const angle = Math.acos(dot / (len1 * len2));
+          const angle = Math.acos(Math.max(-1, Math.min(1, dot / (len1 * len2))));
           angles.push(angle);
         }
       }
 
-      // Check if all angles are close to 90 degrees (π/2)
-      const validAngles = angles.filter((a) => Math.abs(a - Math.PI / 2) < 0.4);
+      // Check if most angles are close to 90 degrees (π/2)
+      // More lenient: allow angles between 70 and 110 degrees
+      const validAngles = angles.filter((a) => Math.abs(a - Math.PI / 2) < 0.5);
       
-      if (validAngles.length >= 3) {
+      if (validAngles.length >= cornerPoints.length - 1) {
         return {
           type: 'rectangle',
           corners: cornerPoints,
@@ -232,9 +300,10 @@ const recognizeRectangle = (points) => {
 
 // Recognize polygon (3+ corners)
 const recognizePolygon = (points) => {
-  if (!isClosed(points)) return null;
+  // Accept both closed and nearly-closed shapes
+  if (!isClosed(points) && !isNearlyClosed(points)) return null;
 
-  const corners = findCorners(points, 0.5);
+  const corners = findCorners(points, 0.45);
 
   if (corners.length >= 3) {
     return {
@@ -290,7 +359,8 @@ export const recognizeShape = (points) => {
   if (points.length < 2) return null;
 
   // Try line first (open shape) - most common
-  if (!isClosed(points, 30)) {
+  // Use a slightly larger threshold for open shape detection
+  if (!isClosed(points, 40) && !isNearlyClosed(points)) {
     const line = recognizeLine(points);
     if (line) return line;
 
@@ -301,7 +371,7 @@ export const recognizeShape = (points) => {
     return null;
   }
 
-  // Closed shapes - try in order of specificity
+  // Closed or nearly-closed shapes - try in order of specificity
   const rectangle = recognizeRectangle(points);
   if (rectangle) return rectangle;
 
@@ -319,4 +389,5 @@ export default {
   distance,
   getBoundingBox,
   isClosed,
+  isNearlyClosed,
 };
