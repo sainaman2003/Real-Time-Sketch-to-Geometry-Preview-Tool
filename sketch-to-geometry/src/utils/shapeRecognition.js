@@ -38,6 +38,90 @@ const calculateLineDeviation = (points) => {
   return maxDeviation;
 };
 
+const calculateSegmentDeviation = (points, startIndex, endIndex) => {
+  if (endIndex - startIndex < 2) return 0;
+
+  const start = points[startIndex];
+  const end = points[endIndex];
+  const totalDist = distance(start, end);
+
+  if (totalDist < 1) return Infinity;
+
+  let maxDeviation = 0;
+
+  for (let i = startIndex + 1; i < endIndex; i++) {
+    const point = points[i];
+    const numerator = Math.abs(
+      (end.y - start.y) * point.x - (end.x - start.x) * point.y + end.x * start.y - end.y * start.x
+    );
+    const denominator = Math.sqrt(
+      Math.pow(end.y - start.y, 2) + Math.pow(end.x - start.x, 2)
+    );
+    const deviation = denominator !== 0 ? numerator / denominator : 0;
+    maxDeviation = Math.max(maxDeviation, deviation);
+  }
+
+  return maxDeviation;
+};
+
+const perpendicularDistance = (point, lineStart, lineEnd) => {
+  const segmentLength = distance(lineStart, lineEnd);
+
+  if (segmentLength < 1) return distance(point, lineStart);
+
+  return Math.abs(
+    (lineEnd.y - lineStart.y) * point.x -
+      (lineEnd.x - lineStart.x) * point.y +
+      lineEnd.x * lineStart.y -
+      lineEnd.y * lineStart.x
+  ) / segmentLength;
+};
+
+const simplifyStroke = (points, tolerance) => {
+  if (points.length <= 2) return points.map((point, index) => ({ point, index }));
+
+  let maxDistance = 0;
+  let splitIndex = 0;
+  const start = points[0];
+  const end = points[points.length - 1];
+
+  for (let i = 1; i < points.length - 1; i++) {
+    const deviation = perpendicularDistance(points[i], start, end);
+    if (deviation > maxDistance) {
+      maxDistance = deviation;
+      splitIndex = i;
+    }
+  }
+
+  if (maxDistance <= tolerance) {
+    return [
+      { point: start, index: 0 },
+      { point: end, index: points.length - 1 },
+    ];
+  }
+
+  const left = simplifyStroke(points.slice(0, splitIndex + 1), tolerance);
+  const right = simplifyStroke(points.slice(splitIndex), tolerance);
+  const adjustedRight = right.map((item) => ({
+    point: item.point,
+    index: item.index + splitIndex,
+  }));
+
+  return left.slice(0, -1).concat(adjustedRight);
+};
+
+const getTurnAngle = (prev, curr, next) => {
+  const v1 = { x: curr.x - prev.x, y: curr.y - prev.y };
+  const v2 = { x: next.x - curr.x, y: next.y - curr.y };
+  const len1 = Math.sqrt(v1.x * v1.x + v1.y * v1.y);
+  const len2 = Math.sqrt(v2.x * v2.x + v2.y * v2.y);
+
+  if (len1 < 1 || len2 < 1) return 0;
+
+  const dot = v1.x * v2.x + v1.y * v2.y;
+  return Math.acos(Math.max(-1, Math.min(1, dot / (len1 * len2))));
+};
+
 // Check if shape is closed (first and last points are close)
 const isClosed = (points, threshold = 20) => {
   if (points.length < 3) return false;
@@ -108,6 +192,56 @@ const recognizeLine = (points) => {
   return null;
 };
 
+// Recognize open strokes made from connected straight segments, such as L shapes
+const recognizePolyline = (points) => {
+  if (points.length < 6 || isClosed(points, 40) || isNearlyClosed(points)) return null;
+
+  const bbox = getBoundingBox(points);
+  if (!bbox) return null;
+
+  const diagonal = distance(
+    { x: bbox.minX, y: bbox.minY },
+    { x: bbox.maxX, y: bbox.maxY }
+  );
+  const tolerance = Math.max(12, diagonal * 0.04);
+  const simplified = simplifyStroke(points, tolerance);
+
+  if (simplified.length < 3 || simplified.length > 6) return null;
+
+  const minSegmentLength = Math.max(24, diagonal * 0.12);
+  const segmentDeviationLimit = Math.max(16, diagonal * 0.06);
+  let hasMajorTurn = false;
+
+  for (let i = 1; i < simplified.length; i++) {
+    const segmentLength = distance(simplified[i - 1].point, simplified[i].point);
+    if (segmentLength < minSegmentLength) return null;
+
+    const deviation = calculateSegmentDeviation(points, simplified[i - 1].index, simplified[i].index);
+    if (deviation > segmentDeviationLimit) return null;
+  }
+
+  for (let i = 1; i < simplified.length - 1; i++) {
+    const angle = getTurnAngle(
+      simplified[i - 1].point,
+      simplified[i].point,
+      simplified[i + 1].point
+    );
+
+    if (angle > Math.PI / 4) {
+      hasMajorTurn = true;
+      break;
+    }
+  }
+
+  if (!hasMajorTurn) return null;
+
+  return {
+    type: 'polyline',
+    points: simplified.map((item) => item.point),
+    segmentCount: simplified.length - 1,
+  };
+};
+
 // Recognize circle
 const recognizeCircle = (points) => {
   if (!isClosed(points) && !isNearlyClosed(points)) return null;
@@ -116,7 +250,6 @@ const recognizeCircle = (points) => {
   if (!bbox) return null;
 
   const aspectRatio = bbox.width / (bbox.height + 0.1);
-  const aspectThreshold = 0.7; // Should be between 0.7 and 1.3 for circle
 
   if (aspectRatio > 0.7 && aspectRatio < 1.3) {
     // Check radius consistency
@@ -182,7 +315,6 @@ const findCorners = (points, threshold = 0.6) => {
       const start = extendedPoints[0];
       const second = extendedPoints[1];
       const end = extendedPoints[extendedPoints.length - 1];
-      const secondLast = extendedPoints[extendedPoints.length - 2];
 
       // Check start point
       const v1start = { x: second.x - start.x, y: second.y - start.y };
@@ -323,7 +455,6 @@ const recognizeArc = (points) => {
   const bbox = getBoundingBox(points);
   if (!bbox) return null;
 
-  const aspectRatio = bbox.width / (bbox.height + 0.1);
   const totalLength = distance(points[0], points[points.length - 1]);
   const pathLength = points.reduce((sum, point, i) => {
     if (i === 0) return sum;
@@ -363,6 +494,9 @@ export const recognizeShape = (points) => {
   if (!isClosed(points, 40) && !isNearlyClosed(points)) {
     const line = recognizeLine(points);
     if (line) return line;
+
+    const polyline = recognizePolyline(points);
+    if (polyline) return polyline;
 
     // Only try arc if not a line
     const arc = recognizeArc(points);

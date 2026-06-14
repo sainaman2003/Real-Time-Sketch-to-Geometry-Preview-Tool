@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import DrawingCanvas from './components/DrawingCanvas';
 import FloatingToolbar from './components/FloatingToolbar';
 import './App.css';
@@ -115,5 +115,4 @@ function App() {
 }
 
 export default App;
-
 
