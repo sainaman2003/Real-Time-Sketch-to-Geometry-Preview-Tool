@@ -20,6 +20,42 @@ const DrawingCanvas = ({
   const currentStrokeRef = useRef([]);
   const selectedStrokeRef = useRef(null);
   const nextStrokeIdRef = useRef(1);
+  const activePointerIdRef = useRef(null);
+  const canvasSizeRef = useRef({ width: 0, height: 0, dpr: 1 });
+
+  const getCanvasPoint = useCallback((e) => {
+    const rect = canvasRef.current.getBoundingClientRect();
+
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top,
+      time: e.timeStamp,
+      pressure: e.pressure || 0.5,
+    };
+  }, []);
+
+  const prepareCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const width = Math.max(1, rect.width);
+    const height = Math.max(1, rect.height);
+    const pixelWidth = Math.round(width * dpr);
+    const pixelHeight = Math.round(height * dpr);
+
+    if (canvas.width !== pixelWidth || canvas.height !== pixelHeight) {
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
+    }
+
+    canvasSizeRef.current = { width, height, dpr };
+
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return ctx;
+  }, []);
 
   const drawShapesOverlay = useCallback((ctx) => {
     ctx.strokeStyle = '#000000';
@@ -92,12 +128,11 @@ const DrawingCanvas = ({
   }, [recognizedShapes]);
 
   const redrawCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+    const ctx = prepareCanvas();
+    if (!ctx) return;
 
-    const ctx = canvas.getContext('2d');
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, canvasSizeRef.current.width, canvasSizeRef.current.height);
 
     // Draw all strokes
     strokes.forEach((stroke, index) => {
@@ -127,44 +162,44 @@ const DrawingCanvas = ({
 
     // Draw recognized shapes - black, solid
     drawShapesOverlay(ctx);
-  }, [drawShapesOverlay, strokes]);
+  }, [drawShapesOverlay, prepareCanvas, strokes]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-
     redrawCanvas();
+
+    const resizeObserver = new ResizeObserver(() => {
+      redrawCanvas();
+    });
+
+    if (canvasRef.current) {
+      resizeObserver.observe(canvasRef.current);
+    }
+
+    return () => {
+      resizeObserver.disconnect();
+    };
   }, [redrawCanvas]);
 
   const handlePointerDown = (e) => {
+    if (!e.isPrimary || (activePointerIdRef.current !== null && activePointerIdRef.current !== e.pointerId)) {
+      return;
+    }
+
+    e.preventDefault();
+    canvasRef.current.setPointerCapture(e.pointerId);
+    activePointerIdRef.current = e.pointerId;
     isDrawingRef.current = true;
     currentStrokeRef.current = [];
     selectedStrokeRef.current = null;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const point = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      time: e.timeStamp,
-      pressure: e.pressure || 0.5,
-    };
-
-    currentStrokeRef.current.push(point);
+    currentStrokeRef.current.push(getCanvasPoint(e));
   };
 
   const handlePointerMove = (e) => {
-    if (!isDrawingRef.current) return;
+    if (!isDrawingRef.current || e.pointerId !== activePointerIdRef.current) return;
 
-    const rect = canvasRef.current.getBoundingClientRect();
-    const point = {
-      x: e.clientX - rect.left,
-      y: e.clientY - rect.top,
-      time: e.timeStamp,
-      pressure: e.pressure || 0.5,
-    };
+    e.preventDefault();
+    const point = getCanvasPoint(e);
 
     currentStrokeRef.current.push(point);
 
@@ -175,6 +210,7 @@ const DrawingCanvas = ({
   const drawStroke = (point) => {
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
+    ctx.setTransform(canvasSizeRef.current.dpr, 0, 0, canvasSizeRef.current.dpr, 0, 0);
 
     if (currentStrokeRef.current.length < 2) return;
 
@@ -195,10 +231,16 @@ const DrawingCanvas = ({
     }
   };
 
-  const handlePointerUp = () => {
-    if (!isDrawingRef.current) return;
+  const handlePointerUp = (e) => {
+    if (!isDrawingRef.current || e.pointerId !== activePointerIdRef.current) return;
+
+    e.preventDefault();
+    if (canvasRef.current.hasPointerCapture(e.pointerId)) {
+      canvasRef.current.releasePointerCapture(e.pointerId);
+    }
 
     isDrawingRef.current = false;
+    activePointerIdRef.current = null;
 
     if (currentTool === 'eraser') {
       // Eraser mode - no stroke to save
@@ -226,6 +268,19 @@ const DrawingCanvas = ({
     currentStrokeRef.current = [];
   };
 
+  const handlePointerCancel = (e) => {
+    if (e.pointerId !== activePointerIdRef.current) return;
+
+    if (canvasRef.current.hasPointerCapture(e.pointerId)) {
+      canvasRef.current.releasePointerCapture(e.pointerId);
+    }
+
+    isDrawingRef.current = false;
+    activePointerIdRef.current = null;
+    currentStrokeRef.current = [];
+    redrawCanvas();
+  };
+
   return (
     <canvas
       ref={canvasRef}
@@ -233,8 +288,8 @@ const DrawingCanvas = ({
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}
-      onPointerLeave={handlePointerUp}
-      touch-action="none"
+      onPointerCancel={handlePointerCancel}
+      style={{ touchAction: 'none' }}
     />
   );
 };
